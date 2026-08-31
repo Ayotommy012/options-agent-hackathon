@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date
 
 from app.schemas.option_chain import OptionChain
 from app.schemas.option_contract import (
@@ -8,48 +8,65 @@ from app.schemas.option_contract import (
     Trade,
 )
 
+
 class MarketDataService:
 
     def normalize_option_chain(
-            self,
-            underlying: str,
-            raw_data: dict,
-    )-> OptionChain:
+        self,
+        underlying: str,
+        contracts_data: dict,
+        snapshots_data: dict,
+    ) -> OptionChain:
 
         contracts = []
 
-        snapshots = raw_data.get("snapshots", {} )
+        contract_list = contracts_data.get("option_contracts", [])
+        snapshots = snapshots_data.get("snapshots", {})
 
-        for contract_symbol, snapshots in snapshots.items():
+        for contract in contract_list:
 
-            details = snapshots.get("options_details", {})
-            latest_quote = snapshots.get("latest_quote", {})
-            latest_trade = snapshots.get("latest_trade", {})
-            greeks = snapshots.get("greeks", {})
+            symbol = contract.get("symbol")
 
-            contracts = OptionContract(
-                symbol=contract_symbol,
+            snapshot = snapshots.get(symbol, {})
+
+            latest_quote = snapshot.get("latestQuote", {})
+            latest_trade = snapshot.get("latestTrade", {})
+            greeks = snapshot.get("greeks", {})
+
+            expiration = contract.get("expiration_date")
+
+            if not expiration:
+                continue
+
+            option = OptionContract(
+                symbol=symbol,
                 underlying=underlying,
 
-                strike_price=details.get("strike_price"),
-                expiration_date=datetime.fromisoformat(
-                    details["expiration_date"]
-                ).date(),
+                strike_price=float(
+                    contract.get("strike_price", 0)
+                ),
 
-                option_type=details.get("type"),
+                expiration_date=date.fromisoformat(
+                    expiration
+                ),
 
-                implied_volatility=snapshots.get("implied_volatility")
+                option_type=contract.get("type", "").lower(),
+
+                implied_volatility=snapshot.get(
+                    "impliedVolatility"
+                ),
 
                 quote=Quote(
-                    bid_price=latest_quote.get("bid_price"),
-                    ask_price=latest_quote.get("ask_price"),
-                    bid_size=latest_quote.get("bid_size"),
-                    ask_size=latest_quote.get("ask_size"),
+                    bid_price=latest_quote.get("bp"),
+                    ask_price=latest_quote.get("ap"),
+                    bid_size=latest_quote.get("bs"),
+                    ask_size=latest_quote.get("as"),
                 ),
+
                 trade=Trade(
-                    price=latest_trade.get("price"),
-                    size=latest_trade.get("size"),
-                    timestamp=latest_trade.get("timestamp"),
+                    price=latest_trade.get("p"),
+                    size=latest_trade.get("s"),
+                    timestamp=latest_trade.get("t"),
                 ),
 
                 greeks=Greeks(
@@ -59,15 +76,14 @@ class MarketDataService:
                     vega=greeks.get("vega"),
                     rho=greeks.get("rho"),
                 ),
-                volume=snapshots.get("volume")
-                open_interest=snapshots.get("open_interest")
+
+                volume=snapshot.get("volume"),
+                open_interest=snapshot.get("openInterest"),
             )
 
-            contracts.append(contracts)
+            contracts.append(option)
 
-            return OptionChain(
-                underlying=underlying,
-                contracts=contracts,
-            )
-
-
+        return OptionChain(
+            underlying=underlying,
+            contracts=contracts,
+        )

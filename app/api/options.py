@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from app.services.options_service import OptionsService
 
@@ -10,7 +10,11 @@ router = APIRouter(
 
 
 @router.get("/{symbol}")
-async def get_option_chain(symbol: str):
+async def get_option_chain(
+    symbol: str,
+    option_type: str | None = Query(None),
+    expiration: str | None = Query(None),
+    ):
     service = OptionsService()
 
     try:
