@@ -102,39 +102,84 @@ class TradingLoop:
             logger.error(f"Error fetching sentiment for {symbol}: {e}")
             return "NEUTRAL"
             
-    async def get_technical_trend(self, symbol: str) -> str:
-        """Fetch historical bars from Alpaca to determine structural technical trend (50-day SMA)."""
+    async def get_ict_trend(self, symbol: str) -> str:
+        """Fetch historical bars and use LLM to perform ICT (Inner Circle Trader) Smart Money analysis."""
         try:
             from datetime import datetime, timedelta, timezone
-            start_date = (datetime.now(timezone.utc) - timedelta(days=90)).strftime('%Y-%m-%dT%H:%M:%SZ')
-            url = f"https://data.alpaca.markets/v2/stocks/bars?symbols={symbol}&timeframe=1Day&start={start_date}&limit=100"
+            start_date = (datetime.now(timezone.utc) - timedelta(days=20)).strftime('%Y-%m-%dT%H:%M:%SZ')
+            url = f"https://data.alpaca.markets/v2/stocks/bars?symbols={symbol}&timeframe=1Day&start={start_date}&limit=15"
             response = await self.alpaca_client.client.get(url)
             bars = response.json().get("bars", {}).get(symbol, [])
             
-            if len(bars) < 20:
-                logger.warning(f"Not enough bar data for {symbol} to calculate MA.")
+            if len(bars) < 5:
                 return "NEUTRAL"
                 
-            # Calculate 50-day Simple Moving Average (or as many days as we have up to 50)
-            closes = [b.get("c", 0.0) for b in bars][-50:]
-            sma = sum(closes) / len(closes)
-            current_price = closes[-1]
+            # Format OHLC data for the LLM
+            price_action = ""
+            for i, b in enumerate(bars[-10:]):
+                price_action += f"Day {i+1} -> Open: {b.get('o'):.2f}, High: {b.get('h'):.2f}, Low: {b.get('l'):.2f}, Close: {b.get('c'):.2f}, Vol: {b.get('v')}\n"
+                
+            prompt = (
+                f"You are an expert in Inner Circle Trader (ICT) and Smart Money Concepts (SMC).\n"
+                f"Analyze the following recent daily price action for {symbol}:\n{price_action}\n"
+                f"Look for Liquidity Sweeps, Fair Value Gaps (FVG), Order Blocks, and Market Structure Shifts (MSS).\n"
+                f"Return EXACTLY one word (BULLISH, BEARISH, or NEUTRAL)."
+            )
             
-            # Require 1% buffer to avoid chopping back and forth
-            if current_price > sma * 1.01:
-                return "BULLISH"
-            elif current_price < sma * 0.99:
-                return "BEARISH"
-            else:
-                return "NEUTRAL"
+            res = await self.ai_agent.client.chat.completions.create(
+                model=self.ai_agent.model_name,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+            )
+            content = res.choices[0].message.content.strip().upper()
+            
+            if "BULLISH" in content: return "BULLISH"
+            if "BEARISH" in content: return "BEARISH"
+            return "NEUTRAL"
+            
         except Exception as e:
-            logger.error(f"Error fetching technical trend for {symbol}: {e}")
+            logger.error(f"Error fetching ICT trend for {symbol}: {e}")
+            return "NEUTRAL"
+
+    async def get_macro_regime(self) -> str:
+        """Fetch general market news and apply Bridgewater Associates macro framework."""
+        try:
+            # Fetch general market news (SPY is a good proxy for macro news)
+            url = f"https://data.alpaca.markets/v1beta1/news?symbols=SPY&limit=5"
+            response = await self.alpaca_client.client.get(url)
+            news_data = response.json().get("news", [])
+            headlines = "\n".join([n.get("headline", "") for n in news_data])
+            
+            prompt = (
+                "You are a Senior Macro Portfolio Manager at Bridgewater Associates. "
+                "Apply Ray Dalio's macroeconomic frameworks (Growth vs Inflation expectations). "
+                f"Analyze these recent market headlines:\n{headlines}\n"
+                "Determine the current macro regime and how it impacts US Equities. "
+                "Return EXACTLY one word representing your equity outlook: BULLISH, BEARISH, or NEUTRAL."
+            )
+            
+            res = await self.ai_agent.client.chat.completions.create(
+                model=self.ai_agent.model_name,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+            )
+            content = res.choices[0].message.content.strip().upper()
+            
+            if "BULLISH" in content: return "BULLISH"
+            if "BEARISH" in content: return "BEARISH"
+            return "NEUTRAL"
+        except Exception as e:
+            logger.error(f"Error fetching macro regime: {e}")
             return "NEUTRAL"
 
     async def step(self):
         logger.info("--- Starting Trading Loop Step ---")
         
         try:
+            # 0. Bridgewater Macro Assessment
+            macro_outlook = await self.get_macro_regime()
+            logger.info(f"Bridgewater Macro Regime Outlook: {macro_outlook}")
+            
             # 1. Get State
             state = await self.portfolio_service.get_portfolio_state()
             
@@ -156,15 +201,15 @@ class TradingLoop:
                 
                 try:
                     news_sentiment = await self.get_sentiment(symbol)
-                    tech_trend = await self.get_technical_trend(symbol)
-                    logger.info(f"Signals for {symbol} -> News: {news_sentiment} | Technical (50-SMA): {tech_trend}")
+                    ict_trend = await self.get_ict_trend(symbol)
+                    logger.info(f"Signals for {symbol} -> Macro: {macro_outlook} | News: {news_sentiment} | ICT Smart Money: {ict_trend}")
                     
-                    # Combine fundamental (news) + technical (MA) edge using a scoring system
-                    # This allows the bot to trade on just news, just MA, or both, while avoiding conflicting trades.
+                    # Combine fundamental (news) + technical (ICT) + macro edge using a scoring system
+                    macro_score = 1 if macro_outlook == "BULLISH" else (-1 if macro_outlook == "BEARISH" else 0)
                     news_score = 1 if news_sentiment == "BULLISH" else (-1 if news_sentiment == "BEARISH" else 0)
-                    tech_score = 1 if tech_trend == "BULLISH" else (-1 if tech_trend == "BEARISH" else 0)
+                    ict_score = 1 if ict_trend == "BULLISH" else (-1 if ict_trend == "BEARISH" else 0)
                     
-                    total_score = news_score + tech_score
+                    total_score = macro_score + news_score + ict_score
                     
                     if total_score > 0:
                         edge = "BULLISH"
@@ -242,7 +287,35 @@ class TradingLoop:
                 
             logger.info(f"Sleeping for {interval_seconds} seconds...")
             await asyncio.sleep(interval_seconds)
-            
-if __name__ == "__main__":
+
+async def start_dummy_server():
+    """Starts a dummy web server so cloud platforms (like Render Web Services) don't crash waiting for a port binding."""
+    import os
+    import uvicorn
+    from fastapi import FastAPI
+    
+    app = FastAPI()
+    
+    @app.get("/")
+    @app.get("/health")
+    async def health_check():
+        return {"status": "Trading Bot is running!"}
+        
+    port = int(os.environ.get("PORT", 8080))
+    config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="info")
+    server = uvicorn.Server(config)
+    
+    # Run the uvicorn server in the asyncio event loop
+    logger.info(f"Dummy health-check server starting on port {port}")
+    await server.serve()
+
+async def main():
+    # Start the dummy web server concurrently with the trading loop
     loop = TradingLoop()
-    asyncio.run(loop.run())
+    await asyncio.gather(
+        start_dummy_server(),
+        loop.run()
+    )
+
+if __name__ == "__main__":
+    asyncio.run(main())
