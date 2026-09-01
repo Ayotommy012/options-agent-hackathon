@@ -172,6 +172,32 @@ class TradingLoop:
             logger.error(f"Error fetching macro regime: {e}")
             return "NEUTRAL"
 
+    def get_position_direction(self, symbol: str, positions: list) -> str:
+        """Determines if current exposure on a symbol is BULLISH or BEARISH based on option types."""
+        import re
+        for pos in positions:
+            pos_symbol = pos.get("symbol", "")
+            match = re.match(r"^[A-Z]+", pos_symbol)
+            if match and match.group(0) == symbol:
+                if "C" in pos_symbol: return "BULLISH"
+                if "P" in pos_symbol: return "BEARISH"
+        return "NEUTRAL"
+
+    async def close_underlying_positions(self, underlying_symbol: str, raw_positions: list):
+        import re
+        for pos in raw_positions:
+            pos_symbol = pos.get("symbol", "")
+            match = re.match(r"^[A-Z]+", pos_symbol)
+            if match and match.group(0) == underlying_symbol:
+                logger.info(f"Closing position {pos_symbol} for underlying {underlying_symbol}")
+                if settings.trading_enabled:
+                    try:
+                        await self.alpaca_client.close_position(pos_symbol)
+                    except Exception as e:
+                        logger.error(f"Failed to close {pos_symbol}: {e}")
+                else:
+                    logger.info(f"TRADING_ENABLED=false. Simulating close of {pos_symbol}.")
+
     async def step(self):
         logger.info("--- Starting Trading Loop Step ---")
         
@@ -191,13 +217,9 @@ class TradingLoop:
             # 2. Position Monitoring & P&L
             await self.track_pnl_and_monitor_positions(state)
             
-            # 3. Discover new trades
+            # 3. Discover new trades and Re-evaluate open positions
             for symbol in self.symbols_to_monitor:
-                if symbol in state["active_symbols"]:
-                    logger.info(f"Already have exposure to {symbol}. Skipping.")
-                    continue
-                    
-                logger.info(f"Analyzing {symbol} for opportunities...")
+                logger.info(f"Analyzing {symbol} for opportunities/re-evaluation...")
                 
                 try:
                     news_sentiment = await self.get_sentiment(symbol)
@@ -216,7 +238,25 @@ class TradingLoop:
                     elif total_score < 0:
                         edge = "BEARISH"
                     else:
-                        logger.info(f"Conflicting or neutral signals for {symbol} (Score: {total_score}), sitting out.")
+                        edge = "NEUTRAL"
+                    
+                    if edge == "NEUTRAL":
+                        logger.info(f"Conflicting or neutral signals for {symbol} (Score: {total_score}).")
+                        
+                    # Re-evaluate existing positions
+                    if symbol in state["active_symbols"]:
+                        pos_direction = self.get_position_direction(symbol, state["raw_positions"])
+                        
+                        # If the edge has flipped completely against our position, close it!
+                        if (pos_direction == "BULLISH" and edge == "BEARISH") or (pos_direction == "BEARISH" and edge == "BULLISH"):
+                            logger.warning(f"🚨 EDGE FLIPPED for {symbol}! Position is {pos_direction} but Edge is {edge}. Bailing out.")
+                            await self.close_underlying_positions(symbol, state["raw_positions"])
+                        else:
+                            logger.info(f"Edge still supports or is neutral for {symbol}. Holding.")
+                        continue # Already hold it, don't open new ones
+                        
+                    # Skip new trades if edge is neutral
+                    if edge == "NEUTRAL":
                         continue
                     
                     chain = await self.options_service.get_option_chain(symbol)

@@ -18,11 +18,19 @@ class PortfolioService:
         active_symbols = set()
         current_exposure = 0.0
         
+        import re
+        
         # Calculate exposure from open positions
         for pos in positions:
             symbol = pos.get("symbol")
-            active_symbols.add(symbol)
             
+            # Extract underlying symbol (e.g. SPY from SPY260831C00460000)
+            underlying_match = re.match(r"^[A-Z]+", symbol)
+            if underlying_match:
+                active_symbols.add(underlying_match.group(0))
+            else:
+                active_symbols.add(symbol)
+                
             # Absolute market value as a rough exposure estimate
             market_value = abs(float(pos.get("market_value", 0)))
             current_exposure += market_value
@@ -30,7 +38,11 @@ class PortfolioService:
         # Add symbols from open orders
         for order in orders:
             symbol = order.get("symbol")
-            active_symbols.add(symbol)
+            underlying_match = re.match(r"^[A-Z]+", symbol)
+            if underlying_match:
+                active_symbols.add(underlying_match.group(0))
+            else:
+                active_symbols.add(symbol)
             
         return {
             "cash": float(account.get("cash", 0)),
