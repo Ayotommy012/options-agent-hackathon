@@ -7,7 +7,7 @@ from app.schemas.trading_strategy import (
 
 
 class StrategyEngine:
-    def _filter_by_dte(self, contracts, min_days=30, max_days=90):
+    def _filter_by_dte(self, contracts, min_days=1, max_days=7):
         filtered = []
         today = date.today()
         for contract in contracts:
