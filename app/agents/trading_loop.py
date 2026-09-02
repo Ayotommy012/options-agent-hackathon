@@ -103,27 +103,40 @@ class TradingLoop:
             return "NEUTRAL"
             
     async def get_ict_trend(self, symbol: str) -> str:
-        """Fetch historical bars and use LLM to perform ICT (Inner Circle Trader) Smart Money analysis."""
+        """Fetch historical bars and use LLM to perform advanced ICT (Inner Circle Trader) SMC analysis."""
         try:
             from datetime import datetime, timedelta, timezone
             start_date = (datetime.now(timezone.utc) - timedelta(days=20)).strftime('%Y-%m-%dT%H:%M:%SZ')
-            url = f"https://data.alpaca.markets/v2/stocks/bars?symbols={symbol}&timeframe=1Day&start={start_date}&limit=15"
-            response = await self.alpaca_client.client.get(url)
-            bars = response.json().get("bars", {}).get(symbol, [])
             
-            if len(bars) < 5:
+            # Fetch Daily Bars for Daily Bias (DOL / PD Arrays)
+            url_daily = f"https://data.alpaca.markets/v2/stocks/bars?symbols={symbol}&timeframe=1Day&start={start_date}&limit=10"
+            res_daily = await self.alpaca_client.client.get(url_daily)
+            daily_bars = res_daily.json().get("bars", {}).get(symbol, [])
+            
+            # Fetch Hourly Bars for Intraday Structure (FVG, sweeps)
+            url_hourly = f"https://data.alpaca.markets/v2/stocks/bars?symbols={symbol}&timeframe=1Hour&start={start_date}&limit=15"
+            res_hourly = await self.alpaca_client.client.get(url_hourly)
+            hourly_bars = res_hourly.json().get("bars", {}).get(symbol, [])
+            
+            if len(daily_bars) < 5 or len(hourly_bars) < 5:
                 return "NEUTRAL"
                 
             # Format OHLC data for the LLM
-            price_action = ""
-            for i, b in enumerate(bars[-10:]):
-                price_action += f"Day {i+1} -> Open: {b.get('o'):.2f}, High: {b.get('h'):.2f}, Low: {b.get('l'):.2f}, Close: {b.get('c'):.2f}, Vol: {b.get('v')}\n"
+            pa = f"--- DAILY BARS (Determine Daily Bias, BSL/SSL, Premium/Discount) ---\n"
+            for i, b in enumerate(daily_bars[-5:]):
+                pa += f"Day {i+1} -> O: {b.get('o'):.2f}, H: {b.get('h'):.2f}, L: {b.get('l'):.2f}, C: {b.get('c'):.2f}\n"
+                
+            pa += f"\n--- HOURLY BARS (Identify FVGs, Order Blocks, Liquidity Sweeps, MSS) ---\n"
+            for i, b in enumerate(hourly_bars[-8:]):
+                pa += f"Hour {i+1} -> O: {b.get('o'):.2f}, H: {b.get('h'):.2f}, L: {b.get('l'):.2f}, C: {b.get('c'):.2f}\n"
                 
             prompt = (
-                f"You are an expert in Inner Circle Trader (ICT) and Smart Money Concepts (SMC).\n"
-                f"Analyze the following recent daily price action for {symbol}:\n{price_action}\n"
-                f"Look for Liquidity Sweeps, Fair Value Gaps (FVG), Order Blocks, and Market Structure Shifts (MSS).\n"
-                f"Return EXACTLY one word (BULLISH, BEARISH, or NEUTRAL)."
+                f"You are an elite Inner Circle Trader (ICT) and Smart Money Concepts (SMC) quantitative algorithm.\n"
+                f"Analyze the following multi-timeframe price action for {symbol}:\n{pa}\n"
+                f"Step 1: Determine the 'Daily Bias' by looking at the Daily Bars. Is it drawing to Buy Side Liquidity (BSL) or Sell Side Liquidity (SSL)?\n"
+                f"Step 2: Look at the Hourly Bars for Market Structure Shifts (MSS), Fair Value Gaps (FVGs), and Mitigation Blocks.\n"
+                f"Step 3: If the Daily Bias and Hourly structure align for a long trade, output BULLISH. If they align for short, output BEARISH. Otherwise, output NEUTRAL.\n"
+                f"Return EXACTLY one word: BULLISH, BEARISH, or NEUTRAL. Do not provide any other text."
             )
             
             res = await self.ai_agent.client.chat.completions.create(
@@ -136,9 +149,8 @@ class TradingLoop:
             if "BULLISH" in content: return "BULLISH"
             if "BEARISH" in content: return "BEARISH"
             return "NEUTRAL"
-            
         except Exception as e:
-            logger.error(f"Error fetching ICT trend for {symbol}: {e}")
+            logger.error(f"ICT SMC error for {symbol}: {e}")
             return "NEUTRAL"
 
     async def get_macro_regime(self) -> str:

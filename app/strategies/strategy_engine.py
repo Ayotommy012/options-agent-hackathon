@@ -1,3 +1,4 @@
+from datetime import date
 from app.schemas.option_chain import OptionChain
 from app.schemas.trading_strategy import (
     OptionLeg,
@@ -6,6 +7,14 @@ from app.schemas.trading_strategy import (
 
 
 class StrategyEngine:
+    def _filter_by_dte(self, contracts, min_days=30, max_days=90):
+        filtered = []
+        today = date.today()
+        for contract in contracts:
+            dte = (contract.expiration_date - today).days
+            if min_days <= dte <= max_days:
+                filtered.append(contract)
+        return filtered
 
     def find_bull_call_spreads(
         self,
@@ -17,6 +26,9 @@ class StrategyEngine:
             for contract in chain.contracts
             if contract.option_type.lower() == "call"
         ]
+        
+        # Prevent 0DTE lottery tickets
+        calls = self._filter_by_dte(calls)
 
         candidates = []
 
@@ -104,6 +116,9 @@ class StrategyEngine:
             for contract in chain.contracts
             if contract.option_type.lower() == "put"
         ]
+        
+        # Prevent 0DTE lottery tickets
+        puts = self._filter_by_dte(puts)
 
         candidates = []
 
