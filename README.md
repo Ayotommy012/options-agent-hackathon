@@ -20,9 +20,9 @@ AlphaQuant does not allow a single signal to control execution.
 
 For every monitored symbol, the agent independently evaluates three directional factors:
 
-* **Macro Regime**
-* **News Sentiment**
-* **Multi-Timeframe Market Structure**
+- **Macro Regime**
+- **News Sentiment**
+- **Multi-Timeframe Market Structure**
 
 Each signal produces one of three states:
 
@@ -292,8 +292,6 @@ AlphaQuant actively tracks current exposure before submitting new trades.
 
 If the portfolio already contains exposure associated with a monitored underlying, the system can block another trade instead of repeatedly submitting duplicate positions during subsequent loop iterations.
 
-This is important because the trading loop operates continuously.
-
 Without idempotency controls:
 
 ```text
@@ -317,7 +315,7 @@ Signal detected
 
 ---
 
-## 🧰 Alpaca Integration
+## 🦙 Alpaca Integration
 
 Alpaca provides the external financial infrastructure used by AlphaQuant.
 
@@ -417,44 +415,23 @@ flowchart TD
 At a high level, AlphaQuant operates as a feedback system:
 
 ```text
-          ┌─────────────┐
-          │   OBSERVE   │
-          └──────┬──────┘
-                 ↓
-          ┌─────────────┐
-          │   ANALYZE   │
-          │             │
-          │ Macro       │
-          │ News        │
-          │ Structure   │
-          └──────┬──────┘
-                 ↓
-          ┌─────────────┐
-          │    SCORE    │
-          └──────┬──────┘
-                 ↓
-          ┌─────────────┐
-          │   SELECT    │
-          │  CONTRACT   │
-          └──────┬──────┘
-                 ↓
-          ┌─────────────┐
-          │ RISK CHECK  │
-          └──────┬──────┘
-                 ↓
-          ┌─────────────┐
-          │   EXECUTE   │
-          └──────┬──────┘
-                 ↓
-          ┌─────────────┐
-          │   MONITOR   │
-          └──────┬──────┘
-                 ↓
-          ┌─────────────┐
-          │ RE-EVALUATE │
-          └──────┬──────┘
-                 │
-                 └────────────→ OBSERVE
+Observe
+   ↓
+Analyze
+   ↓
+Score
+   ↓
+Select Contract
+   ↓
+Risk Check
+   ↓
+Execute
+   ↓
+Monitor
+   ↓
+Re-Evaluate
+   ↓
+Repeat
 ```
 
 ---
@@ -464,7 +441,7 @@ At a high level, AlphaQuant operates as a feedback system:
 ## 1. Clone the repository
 
 ```bash
-git clone https://github.com/your-username/options-agent.git
+git clone https://github.com/Ayotommy012/options-agent-hackathon.git
 cd options-agent
 ```
 
